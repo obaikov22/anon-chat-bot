@@ -16,7 +16,7 @@ import random
 from collections import deque
 import asyncio
 import json
-from pathlib import Path  # Добавлен импорт
+from pathlib import Path
 
 # Включение логирования
 logging.basicConfig(
@@ -679,7 +679,7 @@ def main():
                     CHATTING: [
                         CallbackQueryHandler(handle_rating_or_report, pattern='^(rate|report)_'),
                         CallbackQueryHandler(button),
-                        MessageHandler(filters.TEXT & ~filters.COMMAND | filters.PHOTO | filters.VIDEO | filters.AUDIO | filters.DOCUMENT, handle_message),
+                        MessageHandler(filters.TEXT & ~filters.COMMAND | filters.Photo | filters.Video | filters.Audio | filters.Document, handle_message),
                     ],
                 },
                 fallbacks=[],
