@@ -679,11 +679,19 @@ def main():
                     CHATTING: [
                         CallbackQueryHandler(handle_rating_or_report, pattern='^(rate|report)_'),
                         CallbackQueryHandler(button),
-                        MessageHandler(filters.TEXT & ~filters.COMMAND | filters.PHOTO | filters.VIDEO | filters.AUDIO | filters.DOCUMENT, handle_message),
+                        MessageHandler(
+                            (filters.TEXT & ~filters.COMMAND) |
+                            filters.PHOTO |
+                            filters.VIDEO |
+                            filters.AUDIO |
+                            filters.Document.ALL,
+                            handle_message
+                        ),
                     ],
                 },
                 fallbacks=[],
             )
+
 
             application.add_handler(conv_handler)
             application.add_error_handler(error_handler)
