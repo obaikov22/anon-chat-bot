@@ -380,19 +380,18 @@ def main() -> None:
     app.job_queue.run_repeating(check_queue, interval=5, first=0)
     app.job_queue.run_repeating(lambda ctx: save_data(), interval=300, first=300)
 
-    conv = ConversationHandler(
-        entry_points=[CommandHandler('start', start)],
+    conv=ConversationHandler(
+        entry_points=[CommandHandler('start',start)],
         states={
-            SET_NICKNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_nickname)],
-            SET_GENDER: [CallbackQueryHandler(set_gender_choice, pattern='^gender_')],
-            SET_PREFERRED_GENDER: [CallbackQueryHandler(set_preferred_gender_choice, pattern='^pref_gender_')],
-            CHATTING: [
-                CallbackQueryHandler(button),
-                MessageHandler(filters.ALL, handle_message),
+            SET_NICKNAME:[MessageHandler(filters.TEXT&~filters.COMMAND,receive_nickname)],
+            SET_GENDER:[CallbackQueryHandler(set_gender_choice,pattern='^gender_')],
+            SET_PREFERRED_GENDER:[CallbackQueryHandler(set_preferred_gender_choice,pattern='^pref_gender_')],
+            CHATTING:[
+                CallbackQueryHandler(button, pattern="^(find|find_by_gender|end|set_nickname|set_gender)$"),
+                CallbackQueryHandler(handle_rating_or_report, pattern="^(rate|report)_[0-9]+(_[1-5])?$"),
+                MessageHandler(filters.ALL,handle_message)
             ],
-        },
-        fallbacks=[CommandHandler('start', start)],
-        persistent=False,
+        },fallbacks=[CommandHandler('start',start)],persistent=False
     )
     app.add_handler(conv)
     app.add_handler(CallbackQueryHandler(handle_rating_or_report, pattern='^(rate|report)_'))
