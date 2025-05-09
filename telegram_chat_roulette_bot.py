@@ -44,6 +44,10 @@ search_timeouts = {}
 temp_messages = {}
 ratings = {}  # {user_id: {"total": int, "count": int}}
 reports = {}  # {user_id: count}
+# ID администратора (замени на свой Telegram user ID)
+ADMIN_ID = 5413055151
+
+
 
 # Состояния для ConversationHandler
 SET_NICKNAME, CHATTING, SET_GENDER, SET_PREFERRED_GENDER = range(4)
@@ -671,6 +675,37 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         logger.error(f"Необработанная ошибка: {context.error}")
 
+from telegram.constants import ParseMode
+
+async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id != ADMIN_ID:
+        await update.message.reply_text("🚫 У тебя нет доступа к админ-панели.")
+        return
+
+    total_users = len(nicknames)
+    active = len(active_chats) // 2  # делим пополам, потому что пары
+    searching = len(search_queue)
+
+    report_lines = []
+    for uid, count in reports.items():
+        if count > 0:
+            nickname = nicknames.get(uid, {}).get("nickname", "Неизвестный")
+            report_lines.append(f"• {nickname} ({uid}): {count} жалоб")
+
+    report_text = "\n".join(report_lines) if report_lines else "Нет жалоб."
+
+    text = (
+        f"<b>📊 Админ-панель</b>\n\n"
+        f"👥 Всего пользователей: <b>{total_users}</b>\n"
+        f"💬 В активных чатах: <b>{active}</b>\n"
+        f"🔎 В поиске: <b>{searching}</b>\n\n"
+        f"⚠️ <b>Жалобы:</b>\n{report_text}"
+    )
+
+    await update.message.reply_text(text, parse_mode=ParseMode.HTML)
+
+
 def main():
     # Получаем токен из переменной окружения
     bot_token = os.getenv('BOT_TOKEN')
@@ -722,6 +757,7 @@ def main():
 
             application.add_handler(conv_handler)
             application.add_error_handler(error_handler)
+            application.add_handler(CommandHandler("admin", admin_panel))
 
             # Проверка доступности JobQueue перед использованием
             if application.job_queue:
