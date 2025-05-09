@@ -6,7 +6,8 @@ import json
 from collections import deque
 import asyncio
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ParseMode
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.constants import ParseMode
 from telegram.helpers import escape_html
 from telegram.ext import (
     ApplicationBuilder,
@@ -37,7 +38,6 @@ active_chats: dict[int,int] = {}
 nicknames: dict[int,dict] = {}
 ratings: dict[int,dict] = {}
 reports: dict[int,int] = {}
-
 # Conversation states
 SET_NICKNAME, CHATTING, SET_GENDER, SET_PREFERRED_GENDER = range(4)
 
@@ -63,7 +63,6 @@ def load_data() -> None:
             reports.clear()
     else:
         logger.info(f"Data file {DATA_FILE} not found; starting fresh.")
-
 
 def save_data() -> None:
     payload = {
