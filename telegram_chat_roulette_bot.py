@@ -16,6 +16,7 @@ import random
 from collections import deque
 import asyncio
 import json
+from pathlib import Path  # Добавлен импорт
 
 # Включение логирования
 logging.basicConfig(
@@ -23,8 +24,12 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Файл для сохранения данных
-DATA_DIR = Path("/app/data")
+# Определение пути к данным
+DATA_DIR = Path("/app/data")  # Основной путь для тома
+if not DATA_DIR.exists():
+    # Если /app/data не доступен, используем путь из логов Railway
+    DATA_DIR = Path("/var/lib/containers/railwayapp/bind-mounts/b7001a8b-8c39-4357-b4e4-216af86b3aa9/vol_g8vjvp7jakq2vjtl")
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
 DATA_FILE = DATA_DIR / "data.json"
 
 # Создаём директорию, если она не существует
