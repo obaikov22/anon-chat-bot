@@ -370,31 +370,35 @@ def main() -> None:
     load_data()
     token = os.getenv('BOT_TOKEN')
     if not token:
-        logger.error("Missing BOT_TOKEN")
+        logger.error("TOKEN не указан")
         return
     app = ApplicationBuilder().token(token).build()
 
-    # Schedule matching and saving
+    # Восстановим ADMIN_ID явно:
+    global ADMIN_ID
+    ADMIN_ID = int(os.getenv("ADMIN_ID", "5413055151"))
+
+    # Задачи
     app.job_queue.run_repeating(lambda ctx: save_data(), interval=300, first=300)
 
-    conv=ConversationHandler(
-        entry_points=[CommandHandler('start',start)],
+    conv = ConversationHandler(
+        entry_points=[CommandHandler('start', start)],
         states={
-            SET_NICKNAME:[MessageHandler(filters.TEXT&~filters.COMMAND,receive_nickname)],
-            SET_GENDER:[CallbackQueryHandler(set_gender_choice,pattern='^gender_')],
-            SET_PREFERRED_GENDER:[CallbackQueryHandler(set_preferred_gender_choice,pattern='^pref_gender_')],
-            CHATTING:[
+            SET_NICKNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_nickname)],
+            SET_GENDER: [CallbackQueryHandler(set_gender_choice, pattern='^gender_')],
+            SET_PREFERRED_GENDER: [CallbackQueryHandler(set_preferred_gender_choice, pattern='^pref_gender_')],
+            CHATTING: [
                 CallbackQueryHandler(button, pattern="^(find|find_by_gender|end|set_nickname|set_gender)$"),
                 CallbackQueryHandler(handle_rating_or_report, pattern="^(rate|report)_[0-9]+(_[1-5])?$"),
-                MessageHandler(filters.ALL,handle_message)
-            ],
-        },fallbacks=[CommandHandler('start',start)],persistent=False
+                MessageHandler(filters.ALL, handle_message)
+            ]
+        },
+        fallbacks=[CommandHandler('start', start)]
     )
-    app.add_handler(conv)
-    app.add_handler(CallbackQueryHandler(handle_rating_or_report, pattern='^(rate|report)_'))
-    app.add_handler(CommandHandler('admin', admin_panel))
-    app.add_error_handler(error_handler)
 
+    app.add_handler(conv)
+    app.add_handler(CommandHandler("admin", admin_panel))
+    app.add_error_handler(lambda u, c: logger.error(c.error))
     app.run_polling()
 
 if __name__ == '__main__':
