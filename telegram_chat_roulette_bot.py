@@ -503,45 +503,63 @@ async def handle_rating_or_report(update: Update, context: ContextTypes.DEFAULT_
     query = update.callback_query
     user_id = query.from_user.id
     await query.answer()
+    logger.info(f"Processing callback for user {user_id}: {query.data}")
 
     data = query.data.split("_")
     action = data[0]
+    logger.info(f"Action detected: {action}")
 
     if action == "rate":
         _, partner_id_str, rating_str = data
-        partner_id = int(partner_id_str)
-        rating = int(rating_str)
+        try:
+            partner_id = int(partner_id_str)
+            rating = int(rating_str)
+            logger.info(f"Rating {rating} for partner {partner_id}")
 
-        if partner_id not in ratings:
-            ratings[partner_id] = {"total": 0, "count": 0}
-        ratings[partner_id]["total"] += rating
-        ratings[partner_id]["count"] += 1
+            if partner_id not in ratings:
+                ratings[partner_id] = {"total": 0, "count": 0}
+            ratings[partner_id]["total"] += rating
+            ratings[partner_id]["count"] += 1
 
-        avg_rating = round(ratings[partner_id]["total"] / ratings[partner_id]["count"], 1)
-        await query.message.edit_text(
-            f"✅ Спасибо за оценку!\nСредний рейтинг этого пользователя: {avg_rating} ⭐",
-            reply_markup=None
-        )
+            avg_rating = round(ratings[partner_id]["total"] / ratings[partner_id]["count"], 1)
+            if query.message:
+                await query.message.edit_text(
+                    f"✅ Спасибо за оценку!\nСредний рейтинг этого пользователя: {avg_rating} ⭐",
+                    reply_markup=None
+                )
+                logger.info(f"Rating updated for {partner_id}, new average: {avg_rating}")
+            else:
+                logger.warning("query.message is None, cannot edit text")
+        except (ValueError, IndexError) as e:
+            logger.error(f"Error processing rating: {e}")
 
     elif action == "report":
         _, partner_id_str = data
-        partner_id = int(partner_id_str)
+        try:
+            partner_id = int(partner_id_str)
+            logger.info(f"Reporting user {partner_id}")
 
-        if partner_id not in reports:
-            reports[partner_id] = 0
-        reports[partner_id] += 1
+            if partner_id not in reports:
+                reports[partner_id] = 0
+            reports[partner_id] += 1
 
-        report_count = reports[partner_id]
-        await query.message.edit_text(
-            f"⚠️ Спасибо за жалобу!\nЭтот пользователь уже получил {report_count} жалоб(у/и).",
-            reply_markup=None
-        )
-
-        if report_count >= 3:
-            await context.bot.send_message(
-                chat_id=partner_id,
-                text="🚫 Тебе было отправлено несколько жалоб. Пожалуйста, соблюдай правила общения."
-            )
+            report_count = reports[partner_id]
+            if query.message:
+                await query.message.edit_text(
+                    f"⚠️ Спасибо за жалобу!\nЭтот пользователь уже получил {report_count} жалоб(у/и).",
+                    reply_markup=None
+                )
+                logger.info(f"Report count for {partner_id} updated to {report_count}")
+                if report_count >= 3:
+                    await context.bot.send_message(
+                        chat_id=partner_id,
+                        text="🚫 Тебе было отправлено несколько жалоб. Пожалуйста, соблюдай правила общения."
+                    )
+                    logger.info(f"Warning sent to {partner_id} due to 3+ reports")
+            else:
+                logger.warning("query.message is None, cannot edit text")
+        except (ValueError, IndexError) as e:
+            logger.error(f"Error processing report: {e}")
 
     data_to_save = {
         "search_queue": search_queue,
@@ -551,6 +569,7 @@ async def handle_rating_or_report(update: Update, context: ContextTypes.DEFAULT_
         "reports": reports,
     }
     save_data(data_to_save)
+    logger.info("Data saved successfully")
     return CHATTING
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
