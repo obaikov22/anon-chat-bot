@@ -5,10 +5,10 @@ from pathlib import Path
 import json
 from collections import deque
 import asyncio
+import html
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
-from telegram.helpers import escape_html
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
@@ -34,14 +34,16 @@ logger = logging.getLogger(__name__)
 
 # --- Global State ---
 search_queue: deque[int] = deque()
-active_chats: dict[int,int] = {}
-nicknames: dict[int,dict] = {}
-ratings: dict[int,dict] = {}
-reports: dict[int,int] = {}
+active_chats: dict[int, int] = {}
+nicknames: dict[int, dict] = {}
+ratings: dict[int, dict] = {}
+reports: dict[int, int] = {}
+
 # Conversation states
 SET_NICKNAME, CHATTING, SET_GENDER, SET_PREFERRED_GENDER = range(4)
 
 # --- Data Persistence ---
+
 def load_data() -> None:
     global search_queue, active_chats, nicknames, ratings, reports
     if DATA_FILE.exists():
@@ -49,10 +51,10 @@ def load_data() -> None:
             with open(DATA_FILE, 'r') as f:
                 data = json.load(f)
             search_queue = deque(data.get('search_queue', []))
-            active_chats = {int(k): int(v) for k,v in data.get('active_chats', {}).items()}
-            nicknames = {int(k): v for k,v in data.get('nicknames', {}).items()}
-            ratings = {int(k): v for k,v in data.get('ratings', {}).items()}
-            reports = {int(k): v for k,v in data.get('reports', {}).items()}
+            active_chats = {int(k): int(v) for k, v in data.get('active_chats', {}).items()}
+            nicknames = {int(k): v for k, v in data.get('nicknames', {}).items()}
+            ratings = {int(k): v for k, v in data.get('ratings', {}).items()}
+            reports = {int(k): v for k, v in data.get('reports', {}).items()}
             logger.info(f"Loaded data from {DATA_FILE}")
         except Exception as e:
             logger.error(f"Failed to load data: {e}")
@@ -64,13 +66,14 @@ def load_data() -> None:
     else:
         logger.info(f"Data file {DATA_FILE} not found; starting fresh.")
 
+
 def save_data() -> None:
     payload = {
         'search_queue': list(search_queue),
-        'active_chats': {str(k):v for k,v in active_chats.items()},
-        'nicknames': {str(k):v for k,v in nicknames.items()},
-        'ratings': {str(k):v for k,v in ratings.items()},
-        'reports': {str(k):v for k,v in reports.items()},
+        'active_chats': {str(k): v for k, v in active_chats.items()},
+        'nicknames': {str(k): v for k, v in nicknames.items()},
+        'ratings': {str(k): v for k, v in ratings.items()},
+        'reports': {str(k): v for k, v in reports.items()},
     }
     try:
         with open(DATA_FILE, 'w') as f:
@@ -106,7 +109,7 @@ def get_preferred_gender_keyboard() -> InlineKeyboardMarkup:
     ])
 
 def get_rating_keyboard(partner_id: int) -> InlineKeyboardMarkup:
-    stars = [[InlineKeyboardButton('⭐'*i, callback_data=f'rate_{partner_id}_{i}') for i in range(1,6)]]
+    stars = [[InlineKeyboardButton('⭐'*i, callback_data=f'rate_{partner_id}_{i}') for i in range(1, 6)]]
     report = [[InlineKeyboardButton("⚠️ Пожаловаться", callback_data=f"report_{partner_id}")]]
     return InlineKeyboardMarkup(stars + report)
 
@@ -123,23 +126,23 @@ async def check_queue(context: ContextTypes.DEFAULT_TYPE) -> None:
             if u2 not in search_queue:
                 continue
             data2 = nicknames.get(u2, {})
-            match1 = data1.get('preferred_gender','Любой') in ('Любой', data2.get('gender','Не указан'))
-            match2 = data2.get('preferred_gender','Любой') in ('Любой', data1.get('gender','Не указан'))
+            match1 = data1.get('preferred_gender', 'Любой') in ('Любой', data2.get('gender', 'Не указан'))
+            match2 = data2.get('preferred_gender', 'Любой') in ('Любой', data1.get('gender', 'Не указан'))
             if match1 and match2:
                 search_queue.remove(u1)
                 search_queue.remove(u2)
                 active_chats[u1] = u2
                 active_chats[u2] = u1
-                # Notify
+                # Notify both users
                 await context.bot.send_message(
                     chat_id=u1,
-                    text=f"🎉 Чат с {escape_html(nicknames[u2]['nickname'])} начат!",
+                    text=f"🎉 Чат с {html.escape(nicknames[u2]['nickname'])} начат!",
                     reply_markup=get_main_keyboard(),
                     parse_mode=ParseMode.HTML
                 )
                 await context.bot.send_message(
                     chat_id=u2,
-                    text=f"🎉 Чат с {escape_html(nicknames[u1]['nickname'])} начат!",
+                    text=f"🎉 Чат с {html.escape(nicknames[u1]['nickname'])} начат!",
                     reply_markup=get_main_keyboard(),
                     parse_mode=ParseMode.HTML
                 )
@@ -148,11 +151,15 @@ async def check_queue(context: ContextTypes.DEFAULT_TYPE) -> None:
 # --- Handlers ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user = update.effective_user
-    nicknames.setdefault(user.id, {'nickname': f"Аноним_{user.id%1000}", 'gender':'Не указан','preferred_gender':'Любой'})
+    nicknames.setdefault(
+        user.id,
+        {'nickname': f"Аноним_{user.id%1000}", 'gender': 'Не указан', 'preferred_gender': 'Любой'}
+    )
     await update.message.reply_text(
-        f"✨ Привет, {escape_html(user.first_name)}! Добро пожаловать в анонимную чат-рулетку!\n"
+        f"✨ Привет, {html.escape(user.first_name)}! Добро пожаловать в анонимную чат-рулетку!\n"
         "Используй клавиатуру ниже.",
-        reply_markup=get_main_keyboard(), parse_mode=ParseMode.HTML
+        reply_markup=get_main_keyboard(),
+        parse_mode=ParseMode.HTML
     )
     return CHATTING
 
@@ -161,67 +168,88 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await query.answer()
     user_id = query.from_user.id
     cmd = query.data
+    # Handle "find"
     if cmd == 'find':
         if user_id in active_chats:
-            await query.edit_message_text("⚠️ Ты уже в чате!", reply_markup=get_main_keyboard())
+            await query.edit_message_text(
+                "⚠️ Ты уже в чате!", reply_markup=get_main_keyboard()
+            )
         elif user_id not in search_queue:
             search_queue.append(user_id)
             await query.edit_message_text(
-                f"🔎 Ищем... в очереди: {len(search_queue)}", reply_markup=get_main_keyboard()
+                f"🔎 Ищем... (очередь: {len(search_queue)})", reply_markup=get_main_keyboard()
             )
         return CHATTING
-
+    # Handle "find_by_gender"
     if cmd == 'find_by_gender':
-        await query.edit_message_text("🔍 Выбери пол:", reply_markup=get_preferred_gender_keyboard())
+        await query.edit_message_text(
+            "🔍 Выбери пол для поиска:", reply_markup=get_preferred_gender_keyboard()
+        )
         return SET_PREFERRED_GENDER
-
+    # Handle "end"
     if cmd == 'end':
         if user_id in active_chats:
             partner = active_chats.pop(user_id)
             active_chats.pop(partner, None)
             await context.bot.send_message(
-                chat_id=user_id, text="🚪 Чат завершён.", reply_markup=get_main_keyboard()
+                chat_id=user_id,
+                text="🚪 Чат завершён.", reply_markup=get_main_keyboard()
             )
         elif user_id in search_queue:
             search_queue.remove(user_id)
-            await query.edit_message_text("🔍 Поиск отменён.", reply_markup=get_main_keyboard())
+            await query.edit_message_text(
+                "🔍 Поиск отменён.", reply_markup=get_main_keyboard()
+            )
         else:
-            await query.edit_message_text("🤔 Ты не в чате.", reply_markup=get_main_keyboard())
+            await query.edit_message_text(
+                "🤔 Ты не в чате.", reply_markup=get_main_keyboard()
+            )
         return CHATTING
-
+    # Handle nickname and gender settings
     if cmd == 'set_nickname':
         await query.edit_message_text(
-            "✏️ Введи псевдоним:", reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("❌ Отмена", callback_data="cancel")] ])
+            "✏️ Введи псевдоним (до 20 символов):",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("❌ Отмена", callback_data="cancel")]
+            ])
         )
         return SET_NICKNAME
-
     if cmd == 'set_gender':
-        await query.edit_message_text("⚧ Выбери пол:", reply_markup=get_gender_keyboard())
+        await query.edit_message_text(
+            "⚧ Выбери свой пол:", reply_markup=get_gender_keyboard()
+        )
         return SET_GENDER
-
     return CHATTING
 
 async def receive_nickname(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_id = update.effective_user.id
-    text = update.message.text.strip()
-    if text and len(text) <= 20:
-        nicknames[user_id]['nickname'] = text
+    nickname = update.message.text.strip()
+    if 1 <= len(nickname) <= 20:
+        nicknames[user_id]['nickname'] = nickname
         await update.message.reply_text(
-            f"✅ Псевдоним установлен: {escape_html(text)}", reply_markup=get_main_keyboard(), parse_mode=ParseMode.HTML
+            f"✅ Псевдоним установлен: {html.escape(nickname)}",
+            reply_markup=get_main_keyboard(), parse_mode=ParseMode.HTML
         )
         return CHATTING
-    await update.message.reply_text("Псевдоним должен быть до 20 символов.")
+    await update.message.reply_text(
+        "⚠️ Псевдоним должен быть от 1 до 20 символов."
+    )
     return SET_NICKNAME
 
 async def set_gender_choice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     data = update.callback_query.data
     uid = update.callback_query.from_user.id
-    g = {'gender_male':'Мужской','gender_female':'Женский','gender_none':'Не указан'}.get(data)
-    if g:
-        nicknames[uid]['gender'] = g
+    mapping = {
+        'gender_male': 'Мужской',
+        'gender_female': 'Женский',
+        'gender_none': 'Не указан'
+    }
+    gender = mapping.get(data)
+    if gender:
+        nicknames[uid]['gender'] = gender
         await update.callback_query.edit_message_text(
-            f"✅ Пол: {g}", reply_markup=get_main_keyboard()
+            f"✅ Пол установлен: {gender}",
+            reply_markup=get_main_keyboard()
         )
     return CHATTING
 
