@@ -190,9 +190,23 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         if user_id in active_chats:
             partner = active_chats.pop(user_id)
             active_chats.pop(partner, None)
+
+            # Отправить сообщения об окончании чата обеим сторонам с клавиатурой оценки
             await context.bot.send_message(
                 chat_id=user_id,
-                text="🚪 Чат завершён.", reply_markup=get_main_keyboard()
+                text=(
+                    f"🚪 Чат завершён.\n"
+                    f"Как тебе {html.escape(nicknames.get(partner, {}).get('nickname', 'партнёр'))}?"
+                ),
+                reply_markup=get_rating_keyboard(partner)
+            )
+            await context.bot.send_message(
+                chat_id=partner,
+                text=(
+                    f"🚪 Твой собеседник вышел из чата.\n"
+                    f"Как тебе {html.escape(nicknames.get(user_id, {}).get('nickname', 'партнёр'))}?"
+                ),
+                reply_markup=get_rating_keyboard(user_id)
             )
         elif user_id in search_queue:
             search_queue.remove(user_id)
