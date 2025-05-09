@@ -291,8 +291,11 @@ async def set_preferred_gender_choice(update: Update, context: ContextTypes.DEFA
         reply_markup=get_main_keyboard()
     )
     search_messages[user_id] = message.message_id
-    context.job_queue.run_once(timeout_search, 60, data=user_id)
-    context.job_queue.run_repeating(check_queue, interval=5, first=0, data=user_id)
+    if context.job_queue:
+        context.job_queue.run_once(timeout_search, 60, data=user_id)
+        context.job_queue.run_repeating(check_queue, interval=5, first=0, data=user_id)
+    else:
+        logger.error("JobQueue не инициализирован. Функции поиска не будут работать.")
     return CHATTING
 
 async def cancel_preferred_gender(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -431,8 +434,11 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=get_main_keyboard()
         )
         search_messages[user_id] = message.message_id
-        context.job_queue.run_once(timeout_search, 60, data=user_id)
-        context.job_queue.run_repeating(check_queue, interval=5, first=0, data=user_id)
+        if context.job_queue:
+            context.job_queue.run_once(timeout_search, 60, data=user_id)
+            context.job_queue.run_repeating(check_queue, interval=5, first=0, data=user_id)
+        else:
+            logger.error("JobQueue не инициализирован. Функции поиска не будут работать.")
 
     elif query.data == "find_by_gender":
         await query.message.reply_text(
@@ -591,19 +597,23 @@ def main():
             ],
         },
         fallbacks=[],
+        per_message=True,  # Добавлено для обработки всех сообщений
     )
 
     application.add_handler(conv_handler)
     application.add_error_handler(error_handler)
 
-    # Периодическое сохранение данных
-    application.job_queue.run_repeating(save_data_periodic, interval=300, first=0, data={
-        "search_queue": search_queue,
-        "active_chats": active_chats,
-        "nicknames": nicknames,
-        "ratings": ratings,
-        "reports": reports,
-    })
+    # Проверка доступности JobQueue перед использованием
+    if application.job_queue:
+        application.job_queue.run_repeating(save_data_periodic, interval=300, first=0, data={
+            "search_queue": search_queue,
+            "active_chats": active_chats,
+            "nicknames": nicknames,
+            "ratings": ratings,
+            "reports": reports,
+        })
+    else:
+        logger.warning("JobQueue не инициализирован. Периодическое сохранение данных не будет работать. Убедитесь, что установлена зависимость 'python-telegram-bot[job-queue]'.")
 
     import atexit
     atexit.register(save_data, {
