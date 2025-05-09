@@ -4,7 +4,6 @@ import time
 from pathlib import Path
 import json
 from collections import deque
-import asyncio
 import html
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -266,18 +265,35 @@ async def set_preferred_gender_choice(update: Update, context: ContextTypes.DEFA
     return CHATTING
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    uid = update.effective_user.id
+    uid=update.effective_user.id
     if uid in active_chats:
-        partner = active_chats[uid]
-        msg = update.message
-        # forward by type
+        pid=active_chats[uid];msg=update.message
+        # text
         if msg.text:
-            await context.bot.send_message(partner, f"{nicknames[uid]['nickname']}: {msg.text}")
+            await context.bot.send_message(pid,f"💬 {html.escape(nicknames[uid]['nickname'])}: {html.escape(msg.text)}")
+        # photo
         elif msg.photo:
-            await context.bot.send_photo(partner, msg.photo[-1].file_id)
-        # ... handle other types similarly ...
+            file=msg.photo[-1].file_id
+            await context.bot.send_photo(pid,file,caption=f"📸 {html.escape(nicknames[uid]['nickname'])}")
+        # video
+        elif msg.video:
+            await context.bot.send_video(pid,msg.video.file_id,caption=f"🎥 {html.escape(nicknames[uid]['nickname'])}")
+        # document
+        elif msg.document:
+            await context.bot.send_document(pid,msg.document.file_id,caption=f"📄 {html.escape(nicknames[uid]['nickname'])}")
+        # audio
+        elif msg.audio:
+            await context.bot.send_audio(pid,msg.audio.file_id,caption=f"🎵 {html.escape(nicknames[uid]['nickname'])}")
+        # voice
+        elif msg.voice:
+            await context.bot.send_voice(pid,msg.voice.file_id,caption=f"🎤 {html.escape(nicknames[uid]['nickname'])}")
+        # video note
+        elif msg.video_note:
+            await context.bot.send_video_note(pid,msg.video_note.file_id)
+        else:
+            await context.bot.send_message(pid,"[Неподдерживаемый тип сообщения]")
     else:
-        await update.message.reply_text("🤔 Ты не в чате.", reply_markup=get_main_keyboard())
+        await update.message.reply_text("🤔 Не в чате.",reply_markup=get_main_keyboard())
     return CHATTING
 
 async def handle_rating_or_report(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
