@@ -129,7 +129,7 @@ def get_rating_keyboard(partner_id):
 # --- Основной функционал ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    logger.info(f"User {user.id} started the bot")
+    logger.info(f"User {user.id} sent /start command")
     message = await update.message.reply_text(
         f"✨ Привет, {user.first_name}! Добро пожаловать в анонимную чат-рулетку 2025! 🎉\n"
         "Сначала придумай себе псевдоним для анонимного общения.",
@@ -612,7 +612,7 @@ def main():
                     ],
                 },
                 fallbacks=[],
-                per_message=True,
+                # Убрано per_message=True, чтобы поддерживать MessageHandler
             )
 
             application.add_handler(conv_handler)
