@@ -503,73 +503,67 @@ async def handle_rating_or_report(update: Update, context: ContextTypes.DEFAULT_
     query = update.callback_query
     user_id = query.from_user.id
     await query.answer()
-    logger.info(f"Processing callback for user {user_id}: {query.data}")
+    logger.info(f'Processing callback for user {user_id}: {query.data}')
 
-    data = query.data.split("_")
+    data = query.data.split('_')
     action = data[0]
-    logger.info(f"Action detected: {action}")
+    logger.info(f'Action detected: {action}')
 
-    if action == "rate":
+    if action == 'rate':
         _, partner_id_str, rating_str = data
         try:
             partner_id = int(partner_id_str)
             rating = int(rating_str)
-            logger.info(f"Rating {rating} for partner {partner_id}")
+            logger.info(f'Rating {rating} for partner {partner_id}')
 
             if partner_id not in ratings:
-                ratings[partner_id] = {"total": 0, "count": 0}
-            ratings[partner_id]["total"] += rating
-            ratings[partner_id]["count"] += 1
+                ratings[partner_id] = {'total': 0, 'count': 0}
+            ratings[partner_id]['total'] += rating
+            ratings[partner_id]['count'] += 1
 
-            avg_rating = round(ratings[partner_id]["total"] / ratings[partner_id]["count"], 1)
-            if query.message:
-                await query.message.edit_text(
-                    f"✅ Спасибо за оценку!\nСредний рейтинг этого пользователя: {avg_rating} ⭐",
-                    reply_markup=None
-                )
-                logger.info(f"Rating updated for {partner_id}, new average: {avg_rating}")
-            else:
-                logger.warning("query.message is None, cannot edit text")
+            avg_rating = round(ratings[partner_id]['total'] / ratings[partner_id]['count'], 1)
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=f'✅ Спасибо за оценку!\nСредний рейтинг этого пользователя: {avg_rating} ⭐'
+            )
+            logger.info(f'Rating updated for {partner_id}, new average: {avg_rating}')
         except (ValueError, IndexError) as e:
-            logger.error(f"Error processing rating: {e}")
+            logger.error(f'Error processing rating: {e}')
 
-    elif action == "report":
+    elif action == 'report':
         _, partner_id_str = data
         try:
             partner_id = int(partner_id_str)
-            logger.info(f"Reporting user {partner_id}")
+            logger.info(f'Reporting user {partner_id}')
 
             if partner_id not in reports:
                 reports[partner_id] = 0
             reports[partner_id] += 1
 
             report_count = reports[partner_id]
-            if query.message:
-                await query.message.edit_text(
-                    f"⚠️ Спасибо за жалобу!\nЭтот пользователь уже получил {report_count} жалоб(у/и).",
-                    reply_markup=None
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=f'⚠️ Спасибо за жалобу!\nЭтот пользователь уже получил {report_count} жалоб(у/и).'
+            )
+            logger.info(f'Report count for {partner_id} updated to {report_count}')
+            if report_count >= 3:
+                await context.bot.send_message(
+                    chat_id=partner_id,
+                    text='🚫 Тебе было отправлено несколько жалоб. Пожалуйста, соблюдай правила общения.'
                 )
-                logger.info(f"Report count for {partner_id} updated to {report_count}")
-                if report_count >= 3:
-                    await context.bot.send_message(
-                        chat_id=partner_id,
-                        text="🚫 Тебе было отправлено несколько жалоб. Пожалуйста, соблюдай правила общения."
-                    )
-                    logger.info(f"Warning sent to {partner_id} due to 3+ reports")
-            else:
-                logger.warning("query.message is None, cannot edit text")
+                logger.info(f'Warning sent to {partner_id} due to 3+ reports')
         except (ValueError, IndexError) as e:
-            logger.error(f"Error processing report: {e}")
+            logger.error(f'Error processing report: {e}')
 
     data_to_save = {
-        "search_queue": search_queue,
-        "active_chats": active_chats,
-        "nicknames": nicknames,
-        "ratings": ratings,
-        "reports": reports,
+        'search_queue': search_queue,
+        'active_chats': active_chats,
+        'nicknames': nicknames,
+        'ratings': ratings,
+        'reports': reports,
     }
     save_data(data_to_save)
-    logger.info("Data saved successfully")
+    logger.info('Data saved successfully')
     return CHATTING
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -612,24 +606,24 @@ def main():
             application = ApplicationBuilder().token(bot_token).build()
 
             conv_handler = ConversationHandler(
-                entry_points=[CommandHandler("start", start)],
+                entry_points=[CommandHandler('start', start)],
                 states={
                     SET_NICKNAME: [
-                        CallbackQueryHandler(set_nickname, pattern="set_nickname"),
-                        CallbackQueryHandler(cancel, pattern="cancel"),
+                        CallbackQueryHandler(set_nickname, pattern='set_nickname'),
+                        CallbackQueryHandler(cancel, pattern='cancel'),
                         MessageHandler(filters.TEXT & ~filters.COMMAND, receive_nickname),
                     ],
                     SET_GENDER: [
-                        CallbackQueryHandler(set_gender_choice, pattern="^gender_(male|female|none)$"),
-                        CallbackQueryHandler(cancel_gender, pattern="cancel_gender"),
+                        CallbackQueryHandler(set_gender_choice, pattern='^gender_(male|female|none)$'),
+                        CallbackQueryHandler(cancel_gender, pattern='cancel_gender'),
                     ],
                     SET_PREFERRED_GENDER: [
-                        CallbackQueryHandler(set_preferred_gender_choice, pattern="^pref_gender_(male|female|any)$"),
-                        CallbackQueryHandler(cancel_preferred_gender, pattern="cancel_pref_gender"),
+                        CallbackQueryHandler(set_preferred_gender_choice, pattern='^pref_gender_(male|female|any)$'),
+                        CallbackQueryHandler(cancel_preferred_gender, pattern='cancel_pref_gender'),
                     ],
                     CHATTING: [
+                        CallbackQueryHandler(handle_rating_or_report, pattern='^(rate|report)_'),  # Перемещён вверх
                         CallbackQueryHandler(button),
-                        CallbackQueryHandler(handle_rating_or_report, pattern="^(rate|report)_"),
                         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message),
                     ],
                 },
