@@ -577,7 +577,15 @@ async def handle_rating_or_report(update: Update, context: ContextTypes.DEFAULT_
     }
     save_data(data_to_save)
     logger.info('Data saved successfully')
+
+    await context.bot.send_message(
+        chat_id=user_id,
+        text="🔄 Что дальше? Выбери действие:",
+        reply_markup=get_main_keyboard()
+    )
+
     return CHATTING
+
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -631,6 +639,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             logger.info(f"Document forwarded to {partner_id}")
 
+        # Обработка голосовых сообщений
+        elif message.voice:
+            await context.bot.send_voice(
+                chat_id=partner_id,
+                voice=message.voice.file_id,
+                caption=f"🎤 {nicknames.get(user_id, {}).get('nickname', 'Неизвестный')}"
+            )
+            logger.info(f"Voice message forwarded to {partner_id}")
+
+        # Обработка видеосообщений (круглых видео)
+        elif message.video_note:
+            await context.bot.send_video_note(
+                chat_id=partner_id,
+                video_note=message.video_note.file_id
+            )
+            logger.info(f"VideoNote forwarded to {partner_id}")
+
     else:
         await update.message.reply_text(
             "🤔 Ты не в чате! Нажми 'Найти собеседника'.",
@@ -683,7 +708,9 @@ def main():
                             (filters.TEXT & ~filters.COMMAND) |
                             filters.PHOTO |
                             filters.VIDEO |
+                            filters.VIDEO_NOTE |
                             filters.AUDIO |
+                            filters.VOICE |
                             filters.Document.ALL,
                             handle_message
                         ),
