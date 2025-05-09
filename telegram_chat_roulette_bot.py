@@ -24,7 +24,11 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Файл для сохранения данных
-DATA_FILE = "data.json"
+DATA_DIR = Path("/app/data")
+DATA_FILE = DATA_DIR / "data.json"
+
+# Создаём директорию, если она не существует
+DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 # Глобальные переменные
 search_queue = deque()
@@ -42,7 +46,7 @@ SET_NICKNAME, CHATTING, SET_GENDER, SET_PREFERRED_GENDER = range(4)
 # --- Сохранение и загрузка данных ---
 def load_data():
     global search_queue, active_chats, nicknames, ratings, reports
-    if os.path.exists(DATA_FILE):
+    if DATA_FILE.exists():
         try:
             with open(DATA_FILE, "r") as f:
                 data = json.load(f)
@@ -51,6 +55,7 @@ def load_data():
                 nicknames = {int(k): v for k, v in data.get("nicknames", {}).items()}
                 ratings = {int(k): v for k, v in data.get("ratings", {}).items()}
                 reports = {int(k): v for k, v in data.get("reports", {}).items()}
+            logger.info(f"Данные успешно загружены из {DATA_FILE}")
         except Exception as e:
             logger.error(f"Ошибка загрузки данных: {e}")
             search_queue = deque()
@@ -58,6 +63,8 @@ def load_data():
             nicknames = {}
             ratings = {}
             reports = {}
+    else:
+        logger.info(f"Файл {DATA_FILE} не существует, инициализация пустых данных")
 
 # Вызываем загрузку данных при старте
 load_data()
@@ -73,6 +80,7 @@ def save_data(data):
     try:
         with open(DATA_FILE, "w") as f:
             json.dump(serializable_data, f, indent=2)
+        logger.info(f"Данные успешно сохранены в {DATA_FILE}")
     except Exception as e:
         logger.error(f"Ошибка сохранения данных: {e}")
 
