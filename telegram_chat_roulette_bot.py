@@ -592,14 +592,17 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     error_msg = str(context.error).lower()
     logger.error(f"Update {update} caused error {context.error}")
     if "terminated by other getupdates request" in error_msg or "conflict" in error_msg:
-        logger.warning("Обнаружен конфликт getUpdates. Инициирую перезапуск polling...")
-        raise Exception("GetUpdates conflict detected")  # Пробрасываем ошибку для перезапуска
+        logger.warning("Обнаружен конфликт getUpdates. Ожидание перед перезапуском...")
+        return  # Избегаем поднятия исключения, чтобы не вызвать цикл
     else:
         logger.error(f"Необработанная ошибка: {context.error}")
 
 def main():
     # Получаем токен из переменной окружения
-    bot_token = '8085719324:AAF-jH9vm2YRwxrTIEDUnAnpIfM5CHmC_IA'  # Замените на ваш новый токен
+    bot_token = os.getenv('BOT_TOKEN')
+    if not bot_token:
+        logger.error("Переменная окружения BOT_TOKEN не установлена. Укажите токен бота.")
+        return
 
     max_retries = 5
     retry_delay = 10  # Задержка между попытками в секундах
@@ -631,7 +634,6 @@ def main():
                     ],
                 },
                 fallbacks=[],
-                # Убрано per_message=True, чтобы поддерживать MessageHandler
             )
 
             application.add_handler(conv_handler)
@@ -667,6 +669,8 @@ def main():
             if "getupdates conflict detected" in error_msg or "terminated by other getupdates request" in error_msg or "conflict" in error_msg:
                 logger.warning(f"Попытка {attempt + 1}/{max_retries}: Конфликт getUpdates. Ожидание {retry_delay} секунд перед перезапуском...")
                 time.sleep(retry_delay)
+                if attempt == max_retries - 1:
+                    logger.error("Не удалось запустить бот после максимального числа попыток.")
             else:
                 logger.error(f"Необработанная ошибка: {e}")
                 raise e  # Пробрасываем другие ошибки
