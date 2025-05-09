@@ -311,7 +311,42 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     return CHATTING
 
 async def handle_rating_or_report(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    # simplified for brevity
+    query = update.callback_query
+    user_id = query.from_user.id
+    await query.answer()
+
+    try:
+        parts = query.data.split('_')
+        action = parts[0]
+
+        if action == 'rate' and len(parts) == 3:
+            partner_id = int(parts[1])
+            rating = int(parts[2])
+            if partner_id not in ratings:
+                ratings[partner_id] = {'total': 0, 'count': 0}
+            ratings[partner_id]['total'] += rating
+            ratings[partner_id]['count'] += 1
+            avg = ratings[partner_id]['total'] / ratings[partner_id]['count']
+            await query.edit_message_text(
+                text=f"⭐ Спасибо за оценку! Текущий средний рейтинг пользователя: {avg:.1f}"
+            )
+
+        elif action == 'report' and len(parts) == 2:
+            partner_id = int(parts[1])
+            reports[partner_id] = reports.get(partner_id, 0) + 1
+            await query.edit_message_text(
+                text=f"⚠️ Жалоба отправлена. Общее число жалоб: {reports[partner_id]}"
+            )
+            if reports[partner_id] >= 3:
+                await context.bot.send_message(
+                    chat_id=partner_id,
+                    text="🚫 На ваш аккаунт поступило несколько жалоб. Пожалуйста, соблюдайте правила общения."
+                )
+
+    except Exception as e:
+        logger.error(f"Ошибка в обработке оценки/жалобы: {e}")
+        await query.edit_message_text("⚠️ Произошла ошибка при обработке запроса.")
+
     return CHATTING
 
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
