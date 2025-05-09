@@ -1,4 +1,6 @@
 import logging
+import os
+import time
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -14,7 +16,6 @@ import random
 from collections import deque
 import asyncio
 import json
-import os
 
 # Включение логирования
 logging.basicConfig(
@@ -569,63 +570,98 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    error_msg = str(context.error).lower()
     logger.error(f"Update {update} caused error {context.error}")
+    if "terminated by other getupdates request" in error_msg or "conflict" in error_msg:
+        logger.warning("Обнаружен конфликт getUpdates. Инициирую перезапуск polling...")
+        raise Exception("GetUpdates conflict detected")  # Пробрасываем ошибку для перезапуска
+    else:
+        logger.error(f"Необработанная ошибка: {context.error}")
 
 def main():
-    application = ApplicationBuilder().token('8085719324:AAHY00FYX7XptMqEE3odkUROFXv7bDhSLC0').build()
+    # Получаем токен из переменной окружения
+    bot_token = os.getenv('BOT_TOKEN')
+    if not bot_token:
+        logger.error("Переменная окружения BOT_TOKEN не установлена. Укажите токен бота.")
+        return
 
-    conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("start", start)],
-        states={
-            SET_NICKNAME: [
-                CallbackQueryHandler(set_nickname, pattern="set_nickname"),
-                CallbackQueryHandler(cancel, pattern="cancel"),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_nickname),
-            ],
-            SET_GENDER: [
-                CallbackQueryHandler(set_gender_choice, pattern="^gender_(male|female|none)$"),
-                CallbackQueryHandler(cancel_gender, pattern="cancel_gender"),
-            ],
-            SET_PREFERRED_GENDER: [
-                CallbackQueryHandler(set_preferred_gender_choice, pattern="^pref_gender_(male|female|any)$"),
-                CallbackQueryHandler(cancel_preferred_gender, pattern="cancel_pref_gender"),
-            ],
-            CHATTING: [
-                CallbackQueryHandler(button),
-                CallbackQueryHandler(handle_rating_or_report, pattern="^(rate|report)_"),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message),
-            ],
-        },
-        fallbacks=[],
-        per_message=True,  # Добавлено для обработки всех сообщений
-    )
+    max_retries = 5
+    retry_delay = 10  # Задержка между попытками в секундах
 
-    application.add_handler(conv_handler)
-    application.add_error_handler(error_handler)
+    for attempt in range(max_retries):
+        try:
+            application = ApplicationBuilder().token(bot_token).build()
 
-    # Проверка доступности JobQueue перед использованием
-    if application.job_queue:
-        application.job_queue.run_repeating(save_data_periodic, interval=300, first=0, data={
-            "search_queue": search_queue,
-            "active_chats": active_chats,
-            "nicknames": nicknames,
-            "ratings": ratings,
-            "reports": reports,
-        })
+            conv_handler = ConversationHandler(
+                entry_points=[CommandHandler("start", start)],
+                states={
+                    SET_NICKNAME: [
+                        CallbackQueryHandler(set_nickname, pattern="set_nickname"),
+                        CallbackQueryHandler(cancel, pattern="cancel"),
+                        MessageHandler(filters.TEXT & ~filters.COMMAND, receive_nickname),
+                    ],
+                    SET_GENDER: [
+                        CallbackQueryHandler(set_gender_choice, pattern="^gender_(male|female|none)$"),
+                        CallbackQueryHandler(cancel_gender, pattern="cancel_gender"),
+                    ],
+                    SET_PREFERRED_GENDER: [
+                        CallbackQueryHandler(set_preferred_gender_choice, pattern="^pref_gender_(male|female|any)$"),
+                        CallbackQueryHandler(cancel_preferred_gender, pattern="cancel_pref_gender"),
+                    ],
+                    CHATTING: [
+                        CallbackQueryHandler(button),
+                        CallbackQueryHandler(handle_rating_or_report, pattern="^(rate|report)_"),
+                        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message),
+                    ],
+                },
+                fallbacks=[],
+                per_message=True,
+            )
+
+            application.add_handler(conv_handler)
+            application.add_error_handler(error_handler)
+
+            # Проверка доступности JobQueue перед использованием
+            if application.job_queue:
+                application.job_queue.run_repeating(save_data_periodic, interval=300, first=0, data={
+                    "search_queue": search_queue,
+                    "active_chats": active_chats,
+                    "nicknames": nicknames,
+                    "ratings": ratings,
+                    "reports": reports,
+                })
+            else:
+                logger.warning("JobQueue не инициализирован. Периодическое сохранение данных не будет работать. Убедитесь, что установлена зависимость 'python-telegram-bot[job-queue]'.")
+
+            import atexit
+            atexit.register(save_data, {
+                "search_queue": search_queue,
+                "active_chats": active_chats,
+                "nicknames": nicknames,
+                "ratings": ratings,
+                "reports": reports,
+            })
+
+            logger.info("Bot is starting...")
+            application.run_polling(allowed_updates=Update.ALL_TYPES)
+            break  # Если polling завершился успешно, выходим из цикла
+
+        except Exception as e:
+            error_msg = str(e).lower()
+            if "getupdates conflict detected" in error_msg or "terminated by other getupdates request" in error_msg or "conflict" in error_msg:
+                logger.warning(f"Попытка {attempt + 1}/{max_retries}: Конфликт getUpdates. Ожидание {retry_delay} секунд перед перезапуском...")
+                time.sleep(retry_delay)
+            else:
+                logger.error(f"Необработанная ошибка: {e}")
+                raise e  # Пробрасываем другие ошибки
+        finally:
+            # Убедимся, что приложение закрывается корректно
+            if 'application' in locals():
+                logger.info("Закрытие приложения перед перезапуском...")
+                application.stop_running()
+
     else:
-        logger.warning("JobQueue не инициализирован. Периодическое сохранение данных не будет работать. Убедитесь, что установлена зависимость 'python-telegram-bot[job-queue]'.")
-
-    import atexit
-    atexit.register(save_data, {
-        "search_queue": search_queue,
-        "active_chats": active_chats,
-        "nicknames": nicknames,
-        "ratings": ratings,
-        "reports": reports,
-    })
-
-    logger.info("Bot is starting...")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+        logger.error(f"Не удалось запустить бот после {max_retries} попыток. Проверьте, не запущены ли другие экземпляры бота.")
 
 if __name__ == "__main__":
     main()
