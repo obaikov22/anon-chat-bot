@@ -580,10 +580,7 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     # Получаем токен из переменной окружения
-    bot_token = os.getenv('8085719324:AAF-jH9vm2YRwxrTIEDUnAnpIfM5CHmC_IA')
-    if not bot_token:
-        logger.error("Переменная окружения BOT_TOKEN не установлена. Укажите токен бота.")
-        return
+    bot_token = '8085719324:AAF-jH9vm2YRwxrTIEDUnAnpIfM5CHmC_IA'  # Замените на ваш новый токен
 
     max_retries = 5
     retry_delay = 10  # Задержка между попытками в секундах
