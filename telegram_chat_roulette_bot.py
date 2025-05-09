@@ -82,14 +82,15 @@ def save_data() -> None:
         logger.error(f"Failed to save data: {e}")
 
 # --- Keyboards ---
-def get_main_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([
+def get_main_keyboard(user_id=None, message_id=None):
+    keyboard = [
         [InlineKeyboardButton("🔍 Найти собеседника", callback_data="find")],
         [InlineKeyboardButton("🔍 Поиск по полу", callback_data="find_by_gender")],
         [InlineKeyboardButton("🚪 Завершить чат", callback_data="end")],
         [InlineKeyboardButton("✏️ Сменить псевдоним", callback_data="set_nickname")],
         [InlineKeyboardButton("⚧ Изменить пол", callback_data="set_gender")],
-    ])
+    ]
+    return InlineKeyboardMarkup(keyboard)
 
 def get_gender_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
@@ -139,17 +140,22 @@ async def check_queue(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 # --- Handlers ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    user = update.effective_user
-    nicknames.setdefault(
-        user.id,
-        {'nickname': f"Аноним_{user.id%1000}", 'gender': 'Не указан', 'preferred_gender': 'Любой'}
-    )
-    await update.message.reply_text(
-        f"✨ Привет, {html.escape(user.first_name)}! Добро пожаловать в анонимную чат-рулетку!\n"
-        "Используй клавиатуру ниже.",
-        reply_markup=get_main_keyboard(),
-        parse_mode=ParseMode.HTML
-    )
+    u = update.effective_user
+    nicknames.setdefault(u.id, {'nickname': f"Аноним_{u.id % 1000}", 'gender': 'Не указан', 'preferred_gender': 'Любой'})
+
+    # Удалим предыдущее сообщение, если это возможно (inline)
+    if update.message:
+        await update.message.reply_text(
+            f"✨ Привет, {html.escape(u.first_name)}! Добро пожаловать в чат-рулетку.",
+            reply_markup=get_main_keyboard(),
+            parse_mode=ParseMode.HTML
+        )
+    elif update.callback_query:
+        await update.callback_query.edit_message_text(
+            f"✨ Привет, {html.escape(u.first_name)}! Добро пожаловать в чат-рулетку.",
+            reply_markup=get_main_keyboard(),
+            parse_mode=ParseMode.HTML
+        )
     return CHATTING
 
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -157,28 +163,30 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await query.answer()
     user_id = query.from_user.id
     cmd = query.data
-    # Handle "find"
+
+    # Удаляем старое сообщение, чтобы интерфейс был чище
+    try:
+        await query.message.delete()
+    except:
+        pass
+
     if cmd == 'find':
         if user_id in active_chats:
-            await query.edit_message_text("⚠️ Уже в чате!", reply_markup=get_main_keyboard())
+            await context.bot.send_message(user_id, "⚠️ Уже в чате!", reply_markup=get_main_keyboard())
         elif user_id not in search_queue:
             search_queue.append(user_id)
-            await query.edit_message_text(f"🔎 Ищем... очередь: {len(search_queue)}", reply_markup=get_main_keyboard())
+            await context.bot.send_message(user_id, f"🔎 Ищем... очередь: {len(search_queue)}", reply_markup=get_main_keyboard())
             context.job_queue.run_repeating(check_queue, interval=5, first=0, data=user_id, name=f"queue_{user_id}")
         return CHATTING
-    
-    # Handle "find_by_gender"
+
     if cmd == 'find_by_gender':
-        await query.edit_message_text(
-            "🔍 Выбери пол для поиска:", reply_markup=get_preferred_gender_keyboard()
-        )
+        await context.bot.send_message(user_id, "🔍 Выбери пол для поиска:", reply_markup=get_preferred_gender_keyboard())
         return SET_PREFERRED_GENDER
-    # Handle "end"
+
     if cmd == 'end':
         if user_id in active_chats:
             partner = active_chats.pop(user_id)
             active_chats.pop(partner, None)
-            # Удалить задачу очереди
             try:
                 context.job_queue.get_jobs_by_name(f"queue_{user_id}")[0].schedule_removal()
             except IndexError:
@@ -187,7 +195,6 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
                 context.job_queue.get_jobs_by_name(f"queue_{partner}")[0].schedule_removal()
             except IndexError:
                 pass
-            # Уведомить обеих пользователей
             await context.bot.send_message(
                 chat_id=user_id,
                 text=(
@@ -206,29 +213,23 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             )
         elif user_id in search_queue:
             search_queue.remove(user_id)
-            await query.edit_message_text("🔍 Поиск отменён.", reply_markup=get_main_keyboard())
             try:
                 context.job_queue.get_jobs_by_name(f"queue_{user_id}")[0].schedule_removal()
             except IndexError:
                 pass
+            await context.bot.send_message(user_id, "🔍 Поиск отменён.", reply_markup=get_main_keyboard())
         else:
-            await query.edit_message_text("🤔 Ты не в чате.", reply_markup=get_main_keyboard())
+            await context.bot.send_message(user_id, "🤔 Ты не в чате.", reply_markup=get_main_keyboard())
         return CHATTING
-    
-    # Handle nickname and gender settings
+
     if cmd == 'set_nickname':
-        await query.edit_message_text(
-            "✏️ Введи псевдоним (до 20 символов):",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("❌ Отмена", callback_data="cancel")]
-            ])
-        )
+        await context.bot.send_message(user_id, "✏️ Введи псевдоним:", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("❌ Отмена", callback_data="cancel")]]))
         return SET_NICKNAME
+
     if cmd == 'set_gender':
-        await query.edit_message_text(
-            "⚧ Выбери свой пол:", reply_markup=get_gender_keyboard()
-        )
+        await context.bot.send_message(user_id, "⚧ Выбери свой пол:", reply_markup=get_gender_keyboard())
         return SET_GENDER
+
     return CHATTING
 
 async def receive_nickname(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
