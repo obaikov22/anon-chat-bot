@@ -32,7 +32,6 @@ nicknames = {}
 search_messages = {}
 search_timeouts = {}
 temp_messages = {}
-
 ratings = {}  # {user_id: {"total": int, "count": int}}
 reports = {}  # {user_id: count}
 
@@ -41,6 +40,7 @@ SET_NICKNAME, CHATTING, SET_GENDER, SET_PREFERRED_GENDER = range(4)
 
 # --- Сохранение и загрузка данных ---
 def load_data():
+    global search_queue, active_chats, nicknames, ratings, reports
     if os.path.exists(DATA_FILE):
         try:
             with open(DATA_FILE, "r") as f:
@@ -50,22 +50,16 @@ def load_data():
                 nicknames = {int(k): v for k, v in data.get("nicknames", {}).items()}
                 ratings = {int(k): v for k, v in data.get("ratings", {}).items()}
                 reports = {int(k): v for k, v in data.get("reports", {}).items()}
-                return {
-                    "search_queue": search_queue,
-                    "active_chats": active_chats,
-                    "nicknames": nicknames,
-                    "ratings": ratings,
-                    "reports": reports,
-                }
         except Exception as e:
             logger.error(f"Ошибка загрузки данных: {e}")
-    return {
-        "search_queue": deque(),
-        "active_chats": {},
-        "nicknames": {},
-        "ratings": {},
-        "reports": {},
-    }
+            search_queue = deque()
+            active_chats = {}
+            nicknames = {}
+            ratings = {}
+            reports = {}
+
+# Вызываем загрузку данных при старте
+load_data()
 
 def save_data(data):
     serializable_data = {
@@ -81,13 +75,9 @@ def save_data(data):
     except Exception as e:
         logger.error(f"Ошибка сохранения данных: {e}")
 
-# Загружаем данные при старте
-loaded = load_data()
-search_queue = loaded["search_queue"]
-active_chats = loaded["active_chats"]
-nicknames = loaded["nicknames"]
-ratings = loaded["ratings"]
-reports = loaded["reports"]
+async def save_data_periodic(context: ContextTypes.DEFAULT_TYPE):
+    save_data(context.job.data)
+    logger.info("Данные успешно сохранены (периодическое сохранение).")
 
 # --- Функции клавиатур ---
 def get_main_keyboard():
@@ -96,7 +86,7 @@ def get_main_keyboard():
         [InlineKeyboardButton("🔍 Поиск по полу", callback_data="find_by_gender")],
         [InlineKeyboardButton("🚪 Завершить чат", callback_data="end")],
         [InlineKeyboardButton("✏️ Сменить псевдоним", callback_data="set_nickname")],
-        [InlineKeyboardButton(" transgender Изменить пол", callback_data="set_gender")],
+        [InlineKeyboardButton("⚧ Изменить пол", callback_data="set_gender")],
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -124,12 +114,14 @@ def get_preferred_gender_keyboard():
 
 def get_rating_keyboard(partner_id):
     keyboard = [
-        [InlineKeyboardButton("⭐", callback_data=f"rate_{partner_id}_1"),
-         InlineKeyboardButton("⭐⭐", callback_data=f"rate_{partner_id}_2"),
-         InlineKeyboardButton("⭐⭐⭐", callback_data=f"rate_{partner_id}_3"),
-         InlineKeyboardButton("⭐⭐⭐⭐", callback_data=f"rate_{partner_id}_4"),
-         InlineKeyboardButton("⭐⭐⭐⭐⭐", callback_data=f"rate_{partner_id}_5")],
-        [InlineKeyboardButton("⚠️ Пожаловаться", callback_data=f"report_{partner_id}")]
+        [
+            InlineKeyboardButton("⭐", callback_data=f"rate_{partner_id}_1"),
+            InlineKeyboardButton("⭐⭐", callback_data=f"rate_{partner_id}_2"),
+            InlineKeyboardButton("⭐⭐⭐", callback_data=f"rate_{partner_id}_3"),
+            InlineKeyboardButton("⭐⭐⭐⭐", callback_data=f"rate_{partner_id}_4"),
+            InlineKeyboardButton("⭐⭐⭐⭐⭐", callback_data=f"rate_{partner_id}_5"),
+        ],
+        [InlineKeyboardButton("⚠️ Пожаловаться", callback_data=f"report_{partner_id}")],
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -147,15 +139,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     temp_messages[user.id] = message.message_id
     return SET_NICKNAME
 
-# Обработчик установки псевдонима
 async def set_nickname(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
     await query.answer()
     logger.info(f"User {user_id} requested to set nickname")
-    # Удаляем приветственное сообщение
     if user_id in temp_messages:
-        await context.bot.delete_message(chat_id=user_id, message_id=temp_messages[user_id])
+        try:
+            await context.bot.delete_message(chat_id=user_id, message_id=temp_messages[user_id])
+        except Exception as e:
+            logger.warning(f"Не удалось удалить сообщение {temp_messages[user_id]} для {user_id}: {e}")
         del temp_messages[user_id]
     message = await query.message.reply_text(
         "💬 Введи свой псевдоним (до 20 символов):",
@@ -171,9 +164,11 @@ async def receive_nickname(update: Update, context: ContextTypes.DEFAULT_TYPE):
     nickname = update.message.text.strip()
     logger.info(f"User {user_id} submitted nickname: {nickname}")
     if len(nickname) > 20:
-        # Удаляем предыдущее сообщение об ошибке, если оно есть
         if user_id in temp_messages:
-            await context.bot.delete_message(chat_id=user_id, message_id=temp_messages[user_id])
+            try:
+                await context.bot.delete_message(chat_id=user_id, message_id=temp_messages[user_id])
+            except Exception as e:
+                logger.warning(f"Не удалось удалить сообщение {temp_messages[user_id]} для {user_id}: {e}")
         message = await update.message.reply_text(
             "⚠️ Псевдоним слишком длинный! Попробуй до 20 символов.",
             reply_markup=InlineKeyboardMarkup([
@@ -182,9 +177,11 @@ async def receive_nickname(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         temp_messages[user_id] = message.message_id
         return SET_NICKNAME
-    # Удаляем сообщение "Введи свой псевдоним"
     if user_id in temp_messages:
-        await context.bot.delete_message(chat_id=user_id, message_id=temp_messages[user_id])
+        try:
+            await context.bot.delete_message(chat_id=user_id, message_id=temp_messages[user_id])
+        except Exception as e:
+            logger.warning(f"Не удалось удалить сообщение {temp_messages[user_id]} для {user_id}: {e}")
         del temp_messages[user_id]
     nicknames[user_id] = {"nickname": nickname, "gender": "Не указан", "preferred_gender": "Любой"}
     await update.message.reply_text(
@@ -194,14 +191,13 @@ async def receive_nickname(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return CHATTING
 
-# Обработчик установки пола
 async def set_gender(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
     await query.answer()
     logger.info(f"User {user_id} requested to set gender")
     message = await query.message.reply_text(
-        " transgender Выбери свой пол:",
+        "⚧ Выбери свой пол:",
         reply_markup=get_gender_keyboard()
     )
     temp_messages[user_id] = message.message_id
@@ -211,9 +207,11 @@ async def set_gender_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
     await query.answer()
-    # Удаляем сообщение с меню выбора пола
     if user_id in temp_messages:
-        await context.bot.delete_message(chat_id=user_id, message_id=temp_messages[user_id])
+        try:
+            await context.bot.delete_message(chat_id=user_id, message_id=temp_messages[user_id])
+        except Exception as e:
+            logger.warning(f"Не удалось удалить сообщение {temp_messages[user_id]} для {user_id}: {e}")
         del temp_messages[user_id]
     if query.data == "gender_male":
         nicknames[user_id]["gender"] = "Мужской"
@@ -235,7 +233,6 @@ async def set_gender_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     return CHATTING
 
-# Обработчик установки предпочитаемого пола
 async def set_preferred_gender(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
@@ -252,9 +249,11 @@ async def set_preferred_gender_choice(update: Update, context: ContextTypes.DEFA
     query = update.callback_query
     user_id = query.from_user.id
     await query.answer()
-    # Удаляем сообщение с меню выбора предпочитаемого пола
     if user_id in temp_messages:
-        await context.bot.delete_message(chat_id=user_id, message_id=temp_messages[user_id])
+        try:
+            await context.bot.delete_message(chat_id=user_id, message_id=temp_messages[user_id])
+        except Exception as e:
+            logger.warning(f"Не удалось удалить сообщение {temp_messages[user_id]} для {user_id}: {e}")
         del temp_messages[user_id]
     if query.data == "pref_gender_male":
         nicknames[user_id]["preferred_gender"] = "Мужской"
@@ -274,7 +273,6 @@ async def set_preferred_gender_choice(update: Update, context: ContextTypes.DEFA
             "✅ Будем искать: 🌐 Любой пол",
             reply_markup=get_main_keyboard()
         )
-    # Автоматически начинаем поиск после выбора
     if user_id in active_chats:
         await query.message.reply_text(
             "⚠️ Ты уже в чате! Заверши его, чтобы начать новый.",
@@ -297,15 +295,16 @@ async def set_preferred_gender_choice(update: Update, context: ContextTypes.DEFA
     context.job_queue.run_repeating(check_queue, interval=5, first=0, data=user_id)
     return CHATTING
 
-# Обработчик отмены установки предпочитаемого пола
 async def cancel_preferred_gender(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
     await query.answer()
     logger.info(f"User {user_id} canceled preferred gender setup")
-    # Удаляем сообщение с меню выбора
     if user_id in temp_messages:
-        await context.bot.delete_message(chat_id=user_id, message_id=temp_messages[user_id])
+        try:
+            await context.bot.delete_message(chat_id=user_id, message_id=temp_messages[user_id])
+        except Exception as e:
+            logger.warning(f"Не удалось удалить сообщение {temp_messages[user_id]} для {user_id}: {e}")
         del temp_messages[user_id]
     await query.message.reply_text(
         "🔍 Поиск по полу отменён.",
@@ -313,30 +312,32 @@ async def cancel_preferred_gender(update: Update, context: ContextTypes.DEFAULT_
     )
     return CHATTING
 
-# Обработчик отмены установки пола
 async def cancel_gender(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
     await query.answer()
     logger.info(f"User {user_id} canceled gender setup")
-    # Удаляем сообщение с меню выбора
     if user_id in temp_messages:
-        await context.bot.delete_message(chat_id=user_id, message_id=temp_messages[user_id])
+        try:
+            await context.bot.delete_message(chat_id=user_id, message_id=temp_messages[user_id])
+        except Exception as e:
+            logger.warning(f"Не удалось удалить сообщение {temp_messages[user_id]} для {user_id}: {e}")
         del temp_messages[user_id]
     await query.message.reply_text(
-        " transgender Изменение пола отменено.",
+        "⚧ Изменение пола отменено.",
         reply_markup=get_main_keyboard()
     )
     return CHATTING
 
-# Обработчик отмены
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
     await query.answer()
-    # Удаляем сообщение с предложением ввести псевдоним
     if user_id in temp_messages:
-        await context.bot.delete_message(chat_id=user_id, message_id=temp_messages[user_id])
+        try:
+            await context.bot.delete_message(chat_id=user_id, message_id=temp_messages[user_id])
+        except Exception as e:
+            logger.warning(f"Не удалось удалить сообщение {temp_messages[user_id]} для {user_id}: {e}")
         del temp_messages[user_id]
     nicknames[user_id] = {"nickname": f"Аноним_{user_id % 1000}", "gender": "Не указан", "preferred_gender": "Любой"}
     logger.info(f"User {user_id} canceled nickname setup, using: {nicknames[user_id]['nickname']}")
@@ -347,13 +348,15 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return CHATTING
 
-# --- Функция проверки таймаута поиска ---
 async def timeout_search(context: ContextTypes.DEFAULT_TYPE):
     user_id = context.job.data
     if user_id in search_queue:
         search_queue.remove(user_id)
         if user_id in search_messages:
-            await context.bot.delete_message(chat_id=user_id, message_id=search_messages[user_id])
+            try:
+                await context.bot.delete_message(chat_id=user_id, message_id=search_messages[user_id])
+            except Exception as e:
+                logger.warning(f"Не удалось удалить сообщение {search_messages[user_id]} для {user_id}: {e}")
             del search_messages[user_id]
         await context.bot.send_message(
             chat_id=user_id,
@@ -361,85 +364,48 @@ async def timeout_search(context: ContextTypes.DEFAULT_TYPE):
             reply_markup=get_main_keyboard()
         )
 
-# --- Функция проверки очереди ---
 async def check_queue(context: ContextTypes.DEFAULT_TYPE):
     job = context.job
-    user1 = job.data  # пользователь, запустивший поиск
-
-    logger.info(f"[CHECK_QUEUE] Checking for user {user1}, queue: {list(search_queue)}")
-
-    if user1 not in search_queue:
-        logger.info(f"User {user1} is no longer in queue")
-        job.schedule_removal()
-        return
-
     if len(search_queue) < 2:
         logger.info("Not enough users in queue")
         return
 
-    # Перебираем всех возможных партнеров
-    potential_partners = list(search_queue)
-
-    matched_user = None
-    for partner_candidate in potential_partners:
-        if partner_candidate == user1:
+    users_to_check = list(search_queue)
+    for i, user1 in enumerate(users_to_check):
+        if user1 not in search_queue:
             continue
+        user1_data = nicknames.get(user1, {"gender": "Не указан", "preferred_gender": "Любой"})
+        for user2 in users_to_check[i+1:]:
+            if user2 not in search_queue or user2 == user1:
+                continue
+            user2_data = nicknames.get(user2, {"gender": "Не указан", "preferred_gender": "Любой"})
+            gender_match_1 = user1_data["preferred_gender"] == "Любой" or user1_data["preferred_gender"] == user2_data["gender"]
+            gender_match_2 = user2_data["preferred_gender"] == "Любой" or user2_data["preferred_gender"] == user1_data["gender"]
+            if gender_match_1 and gender_match_2:
+                search_queue.remove(user1)
+                search_queue.remove(user2)
+                active_chats[user1] = user2
+                active_chats[user2] = user1
+                if user1 in search_messages:
+                    try:
+                        await context.bot.delete_message(chat_id=user1, message_id=search_messages[user1])
+                    except Exception as e:
+                        logger.warning(f"Не удалось удалить сообщение {search_messages[user1]} для {user1}: {e}")
+                    del search_messages[user1]
+                if user2 in search_messages:
+                    try:
+                        await context.bot.delete_message(chat_id=user2, message_id=search_messages[user2])
+                    except Exception as e:
+                        logger.warning(f"Не удалось удалить сообщение {search_messages[user2]} для {user2}: {e}")
+                    del search_messages[user2]
+                gender1 = f" (👨)" if user1_data["gender"] == "Мужской" else f" (👩)" if user1_data["gender"] == "Женский" else ""
+                gender2 = f" (👨)" if user2_data["gender"] == "Мужской" else f" (👩)" if user2_data["gender"] == "Женский" else ""
+                await context.bot.send_message(chat_id=user1, text=f"🎉 Чат с {nicknames[user2]['nickname']}{gender2} начат!", reply_markup=get_main_keyboard())
+                await context.bot.send_message(chat_id=user2, text=f"🎉 Чат с {nicknames[user1]['nickname']}{gender1} начат!", reply_markup=get_main_keyboard())
+                logger.info(f"✅ Connected user {user1} with {user2}")
+                job.schedule_removal()
+                return
 
-        user1_data = nicknames.get(user1, {})
-        partner_data = nicknames.get(partner_candidate, {})
-
-        user1_gender = user1_data.get("gender", "Не указан")
-        user1_preferred = user1_data.get("preferred_gender", "Любой")
-
-        partner_gender = partner_data.get("gender", "Не указан")
-        partner_preferred = partner_data.get("preferred_gender", "Любой")
-
-        # Проверяем взаимное соответствие
-        gender_match_1 = user1_preferred == "Любой" or user1_preferred == partner_gender
-        gender_match_2 = partner_preferred == "Любой" or partner_preferred == user1_gender
-
-        if gender_match_1 and gender_match_2:
-            matched_user = partner_candidate
-            break
-
-    if not matched_user:
-        logger.warning(f"No match found for user {user1}")
-        return
-
-    # Нашли совпадение — создаём чат
-    search_queue.remove(user1)
-    search_queue.remove(matched_user)
-
-    active_chats[user1] = matched_user
-    active_chats[matched_user] = user1
-
-    # Удаляем сообщения поиска
-    if user1 in search_messages:
-        await context.bot.delete_message(chat_id=user1, message_id=search_messages[user1])
-        del search_messages[user1]
-    if matched_user in search_messages:
-        await context.bot.delete_message(chat_id=matched_user, message_id=search_messages[matched_user])
-        del search_messages[matched_user]
-
-    # Отправляем приветствия
-    gender1 = f"({nicknames[user1].get('gender', '')})" if nicknames[user1].get("gender") != "Не указан" else ""
-    gender2 = f"({nicknames[matched_user].get('gender', '')})" if nicknames[matched_user].get("gender") != "Не указан" else ""
-
-    await context.bot.send_message(
-        chat_id=user1,
-        text=f"🎉 Чат с {nicknames[matched_user]['nickname']} {gender2} начат!",
-        reply_markup=get_main_keyboard()
-    )
-    await context.bot.send_message(
-        chat_id=matched_user,
-        text=f"🎉 Чат с {nicknames[user1]['nickname']} {gender1} начат!",
-        reply_markup=get_main_keyboard()
-    )
-
-    logger.info(f"✅ Connected user {user1} with {matched_user}")
-    job.schedule_removal()
-
-# --- Обработчик нажатий на кнопки ---
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
@@ -480,7 +446,10 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if user_id in search_queue:
                 search_queue.remove(user_id)
                 if user_id in search_messages:
-                    await context.bot.delete_message(chat_id=user_id, message_id=search_messages[user_id])
+                    try:
+                        await context.bot.delete_message(chat_id=user_id, message_id=search_messages[user_id])
+                    except Exception as e:
+                        logger.warning(f"Не удалось удалить сообщение {search_messages[user_id]} для {user_id}: {e}")
                     del search_messages[user_id]
                 await query.message.reply_text(
                     "🔍 Поиск остановлен. Попробуй снова?",
@@ -501,7 +470,6 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text=f"🚪 Чат с {nicknames.get(partner_id, {}).get('nickname', 'Неизвестный')} завершен.\nКак тебе этот собеседник? Оцени:",
             reply_markup=get_rating_keyboard(partner_id)
         )
-
         await context.bot.send_message(
             chat_id=partner_id,
             text=f"🚪 Чат с {nicknames.get(user_id, {}).get('nickname', 'Неизвестный')} завершен.\nКак тебе этот собеседник? Оцени:",
@@ -519,12 +487,11 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif query.data == "set_gender":
         await query.message.reply_text(
-            " transgender Выбери свой пол:",
+            "⚧ Выбери свой пол:",
             reply_markup=get_gender_keyboard()
         )
         return SET_GENDER
 
-# --- Обработчик оценок и жалоб ---
 async def handle_rating_or_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
@@ -579,7 +546,6 @@ async def handle_rating_or_report(update: Update, context: ContextTypes.DEFAULT_
     save_data(data_to_save)
     return CHATTING
 
-# --- Обработчик текстовых сообщений ---
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     message = update.message.text
@@ -588,7 +554,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         partner_id = active_chats[user_id]
         await context.bot.send_message(
             chat_id=partner_id,
-            text=f"💬 {nicknames[user_id]['nickname']}: {message}"
+            text=f"💬 {nicknames.get(user_id, {}).get('nickname', 'Неизвестный')}: {message}"
         )
     else:
         await update.message.reply_text(
@@ -596,11 +562,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=get_main_keyboard()
         )
 
-# --- Обработчик ошибок ---
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Update {update} caused error {context.error}")
 
-# --- main() с обработчиками ---
 def main():
     application = ApplicationBuilder().token('8085719324:AAHY00FYX7XptMqEE3odkUROFXv7bDhSLC0').build()
 
@@ -622,7 +586,7 @@ def main():
             ],
             CHATTING: [
                 CallbackQueryHandler(button),
-                CallbackQueryHandler(handle_rating_or_report, pattern="^(rate|report)_"),  # ← Новый обработчик!
+                CallbackQueryHandler(handle_rating_or_report, pattern="^(rate|report)_"),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message),
             ],
         },
@@ -632,7 +596,15 @@ def main():
     application.add_handler(conv_handler)
     application.add_error_handler(error_handler)
 
-    # Сохранение перед выходом
+    # Периодическое сохранение данных
+    application.job_queue.run_repeating(save_data_periodic, interval=300, first=0, data={
+        "search_queue": search_queue,
+        "active_chats": active_chats,
+        "nicknames": nicknames,
+        "ratings": ratings,
+        "reports": reports,
+    })
+
     import atexit
     atexit.register(save_data, {
         "search_queue": search_queue,
