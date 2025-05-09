@@ -348,17 +348,50 @@ async def handle_rating_or_report(update: Update, context: ContextTypes.DEFAULT_
     return CHATTING
 
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user.id != ADMIN_ID:
-        await update.message.reply_text("🚫 Нет доступа.")
+    user_id = update.effective_user.id
+    logger.info(f"Команда /admin вызвана пользователем {user_id}")
+
+    if user_id != ADMIN_ID:
+        await update.message.reply_text("🚫 У тебя нет доступа к админ-панели.")
         return
-    total = len(nicknames)
-    active = len(active_chats)//2
+
+    total_users = len(nicknames)
+    active = len(active_chats) // 2
     searching = len(search_queue)
+
+    reported_lines = []
+    for uid, count in reports.items():
+        if count >= 3:
+            nickname = nicknames.get(uid, {}).get("nickname", "Неизвестный")
+            reported_lines.append(f"• {nickname} (ID: {uid}) — {count} жалоб")
+
+    reported_text = "\n".join(reported_lines) if reported_lines else "Нет пользователей с 3+ жалобами."
+
+    rating_entries = []
+    for uid, data in ratings.items():
+        if data["count"] >= 3:
+            avg = round(data["total"] / data["count"], 2)
+            nickname = nicknames.get(uid, {}).get("nickname", "Неизвестный")
+            rating_entries.append((avg, data["count"], nickname, uid))
+
+    top_rated = sorted(rating_entries, reverse=True)[:5]
+    if top_rated:
+        top_rating_text = "\n".join([
+            f"{i+1}. {nickname} (ID: {uid}) — {avg} ⭐ ({count} оценок)"
+            for i, (avg, count, nickname, uid) in enumerate(top_rated)
+        ])
+    else:
+        top_rating_text = "Нет пользователей с рейтингом."
+
     text = (
-        f"<b>Пользователи:</b> {total}\n"
-        f"<b>Чатов:</b> {active}\n"
-        f"<b>В поиске:</b> {searching}\n"
+        f"<b>📊 Админ-панель</b>\n\n"
+        f"👥 Всего пользователей: <b>{total_users}</b>\n"
+        f"💬 В активных чатах: <b>{active}</b>\n"
+        f"🔎 В поиске: <b>{searching}</b>\n\n"
+        f"⭐ <b>Топ-5 по рейтингу:</b>\n{top_rating_text}\n\n"
+        f"⚠️ <b>Жалобы (3+):</b>\n{reported_text}"
     )
+
     await update.message.reply_text(text, parse_mode=ParseMode.HTML)
 
 # --- Error Handler ---
