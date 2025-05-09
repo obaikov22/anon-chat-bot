@@ -581,14 +581,56 @@ async def handle_rating_or_report(update: Update, context: ContextTypes.DEFAULT_
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    message = update.message.text
-    logger.info(f"User {user_id} sent message: {message}")
+    logger.info(f"User {user_id} sent message or media")
     if user_id in active_chats:
         partner_id = active_chats[user_id]
-        await context.bot.send_message(
-            chat_id=partner_id,
-            text=f"💬 {nicknames.get(user_id, {}).get('nickname', 'Неизвестный')}: {message}"
-        )
+        message = update.message
+
+        # Обработка текста
+        if message.text:
+            await context.bot.send_message(
+                chat_id=partner_id,
+                text=f"💬 {nicknames.get(user_id, {}).get('nickname', 'Неизвестный')}: {message.text}"
+            )
+            logger.info(f"Text message forwarded to {partner_id}")
+
+        # Обработка фото
+        elif message.photo:
+            photo = message.photo[-1]  # Берем фото с наивысшим качеством
+            await context.bot.send_photo(
+                chat_id=partner_id,
+                photo=photo.file_id,
+                caption=f"📸 {nicknames.get(user_id, {}).get('nickname', 'Неизвестный')}"
+            )
+            logger.info(f"Photo forwarded to {partner_id}")
+
+        # Обработка видео
+        elif message.video:
+            await context.bot.send_video(
+                chat_id=partner_id,
+                video=message.video.file_id,
+                caption=f"🎥 {nicknames.get(user_id, {}).get('nickname', 'Неизвестный')}"
+            )
+            logger.info(f"Video forwarded to {partner_id}")
+
+        # Обработка аудио
+        elif message.audio:
+            await context.bot.send_audio(
+                chat_id=partner_id,
+                audio=message.audio.file_id,
+                caption=f"🎵 {nicknames.get(user_id, {}).get('nickname', 'Неизвестный')}"
+            )
+            logger.info(f"Audio forwarded to {partner_id}")
+
+        # Обработка документов
+        elif message.document:
+            await context.bot.send_document(
+                chat_id=partner_id,
+                document=message.document.file_id,
+                caption=f"📄 {nicknames.get(user_id, {}).get('nickname', 'Неизвестный')}"
+            )
+            logger.info(f"Document forwarded to {partner_id}")
+
     else:
         await update.message.reply_text(
             "🤔 Ты не в чате! Нажми 'Найти собеседника'.",
@@ -635,9 +677,9 @@ def main():
                         CallbackQueryHandler(cancel_preferred_gender, pattern='cancel_pref_gender'),
                     ],
                     CHATTING: [
-                        CallbackQueryHandler(handle_rating_or_report, pattern='^(rate|report)_'),  # Перемещён вверх
+                        CallbackQueryHandler(handle_rating_or_report, pattern='^(rate|report)_'),
                         CallbackQueryHandler(button),
-                        MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message),
+                        MessageHandler(filters.TEXT & ~filters.COMMAND | filters.PHOTO | filters.VIDEO | filters.AUDIO | filters.DOCUMENT, handle_message),
                     ],
                 },
                 fallbacks=[],
