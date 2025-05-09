@@ -114,37 +114,27 @@ def get_rating_keyboard(partner_id: int) -> InlineKeyboardMarkup:
 
 # --- Matching Logic ---
 async def check_queue(context: ContextTypes.DEFAULT_TYPE) -> None:
-    if len(search_queue) < 2:
+    user_id = context.job.data if hasattr(context.job, 'data') else None
+    if not user_id or user_id not in search_queue:
         return
     queue_copy = list(search_queue)
     for i, u1 in enumerate(queue_copy):
         if u1 not in search_queue:
             continue
-        data1 = nicknames.get(u1, {})
-        for u2 in queue_copy[i+1:]:
+        g1 = nicknames.get(u1, {})
+        for u2 in queue_copy[i + 1:]:
             if u2 not in search_queue:
                 continue
-            data2 = nicknames.get(u2, {})
-            match1 = data1.get('preferred_gender', 'Любой') in ('Любой', data2.get('gender', 'Не указан'))
-            match2 = data2.get('preferred_gender', 'Любой') in ('Любой', data1.get('gender', 'Не указан'))
-            if match1 and match2:
+            g2 = nicknames.get(u2, {})
+            ok1 = g1.get('preferred_gender', 'Любой') in ('Любой', g2.get('gender', 'Не указан'))
+            ok2 = g2.get('preferred_gender', 'Любой') in ('Любой', g1.get('gender', 'Не указан'))
+            if ok1 and ok2:
                 search_queue.remove(u1)
                 search_queue.remove(u2)
                 active_chats[u1] = u2
                 active_chats[u2] = u1
-                # Notify both users
-                await context.bot.send_message(
-                    chat_id=u1,
-                    text=f"🎉 Чат с {html.escape(nicknames[u2]['nickname'])} начат!",
-                    reply_markup=get_main_keyboard(),
-                    parse_mode=ParseMode.HTML
-                )
-                await context.bot.send_message(
-                    chat_id=u2,
-                    text=f"🎉 Чат с {html.escape(nicknames[u1]['nickname'])} начат!",
-                    reply_markup=get_main_keyboard(),
-                    parse_mode=ParseMode.HTML
-                )
+                await context.bot.send_message(u1, f"🎉 Чат с {html.escape(nicknames[u2]['nickname'])} начат!", reply_markup=get_main_keyboard(), parse_mode=ParseMode.HTML)
+                await context.bot.send_message(u2, f"🎉 Чат с {html.escape(nicknames[u1]['nickname'])} начат!", reply_markup=get_main_keyboard(), parse_mode=ParseMode.HTML)
                 return
 
 # --- Handlers ---
@@ -170,15 +160,13 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     # Handle "find"
     if cmd == 'find':
         if user_id in active_chats:
-            await query.edit_message_text(
-                "⚠️ Ты уже в чате!", reply_markup=get_main_keyboard()
-            )
+            await query.edit_message_text("⚠️ Уже в чате!", reply_markup=get_main_keyboard())
         elif user_id not in search_queue:
             search_queue.append(user_id)
-            await query.edit_message_text(
-                f"🔎 Ищем... (очередь: {len(search_queue)})", reply_markup=get_main_keyboard()
-            )
+            await query.edit_message_text(f"🔎 Ищем... очередь: {len(search_queue)}", reply_markup=get_main_keyboard())
+            context.job_queue.run_repeating(check_queue, interval=5, first=0, data=user_id, name=f"queue_{user_id}")
         return CHATTING
+    
     # Handle "find_by_gender"
     if cmd == 'find_by_gender':
         await query.edit_message_text(
@@ -190,8 +178,16 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         if user_id in active_chats:
             partner = active_chats.pop(user_id)
             active_chats.pop(partner, None)
-
-            # Отправить сообщения об окончании чата обеим сторонам с клавиатурой оценки
+            # Удалить задачу очереди
+            try:
+                context.job_queue.get_jobs_by_name(f"queue_{user_id}")[0].schedule_removal()
+            except IndexError:
+                pass
+            try:
+                context.job_queue.get_jobs_by_name(f"queue_{partner}")[0].schedule_removal()
+            except IndexError:
+                pass
+            # Уведомить обеих пользователей
             await context.bot.send_message(
                 chat_id=user_id,
                 text=(
@@ -210,14 +206,15 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
             )
         elif user_id in search_queue:
             search_queue.remove(user_id)
-            await query.edit_message_text(
-                "🔍 Поиск отменён.", reply_markup=get_main_keyboard()
-            )
+            await query.edit_message_text("🔍 Поиск отменён.", reply_markup=get_main_keyboard())
+            try:
+                context.job_queue.get_jobs_by_name(f"queue_{user_id}")[0].schedule_removal()
+            except IndexError:
+                pass
         else:
-            await query.edit_message_text(
-                "🤔 Ты не в чате.", reply_markup=get_main_keyboard()
-            )
+            await query.edit_message_text("🤔 Ты не в чате.", reply_markup=get_main_keyboard())
         return CHATTING
+    
     # Handle nickname and gender settings
     if cmd == 'set_nickname':
         await query.edit_message_text(
@@ -377,7 +374,6 @@ def main() -> None:
     app = ApplicationBuilder().token(token).build()
 
     # Schedule matching and saving
-    app.job_queue.run_repeating(check_queue, interval=5, first=0)
     app.job_queue.run_repeating(lambda ctx: save_data(), interval=300, first=300)
 
     conv=ConversationHandler(
