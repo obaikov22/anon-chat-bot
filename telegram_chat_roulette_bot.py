@@ -407,10 +407,6 @@ def main() -> None:
         return
     app = ApplicationBuilder().token(token).build()
 
-    # Восстановим ADMIN_ID явно:
-    global ADMIN_ID
-    ADMIN_ID = int(os.getenv("ADMIN_ID", "5413055151"))
-
     # Задачи
     app.job_queue.run_repeating(lambda ctx: save_data(), interval=300, first=300)
 
